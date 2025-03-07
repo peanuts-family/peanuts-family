@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Mini Threads</title>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <style>
+        :root {
+            --primary: #101010;
+            --secondary: #f5f5f5;
+        }
+        body {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            font-family: system-ui;
+            background: var(--secondary);
+            color: var(--primary);
+        }
+        .post {
+            background: white;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        textarea {
+            width: 100%;
+            height: 80px;
+            padding: 10px;
+            margin: 10px 0;
+        }
+        button {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div id="auth">
+        <input type="email" id="email" placeholder="Email">
+        <input type="password" id="password" placeholder="Password">
+        <button onclick="signUp()">注册</button>
+        <button onclick="signIn()">登录</button>
+    </div>
+    
+    <div id="app" style="display: none;">
+        <textarea id="postContent" placeholder="分享你的想法... (最多280字符)"></textarea>
+        <button onclick="createPost()">发布</button>
+        <div id="posts"></div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = 'https://ietzzynigxzeysmyhwbx.supabase.co';
+        const SUPABASE_KEY = 'YOeyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlldHp6eW5pZ3h6ZXlzbXlod2J4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDEzNDEzNjIsImV4cCI6MjA1NjkxNzM2Mn0.rPkg1uwlYfdRA5Hednqv6yb_eGBdqbPcsCur59nKc4IUR_SUPABASE_KEY';
+        
+        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        // 认证状态监听
+        supabase.auth.onAuthStateChange((event, session) => {
+            if (session) {
+                document.getElementById('auth').style.display = 'none';
+                document.getElementById('app').style.display = 'block';
+                loadPosts();
+                setupRealtime();
+            }
+        });
+
+        async function signUp() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const { error } = await supabase.auth.signUp({ email, password });
+            if (error) alert(error.message);
+        }
+
+        async function signIn() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const { error } = await supabase.auth.signInWithPassword({ email, password });
+            if (error) alert(error.message);
+        }
+
+        async function createPost() {
+            const content = document.getElementById('postContent').value;
+            if (content.length > 280) {
+                alert('内容不能超过280字符');
+                return;
+            }
+            
+            const { error } = await supabase
+                .from('posts')
+                .insert([{ content }]);
+            
+            if (!error) document.getElementById('postContent').value = '';
+        }
+
+        async function loadPosts() {
+            const { data, error } = await supabase
+                .from('posts')
+                .select('*, likes(count)')
+                .order('created_at', { ascending: false });
+            
+            if (!error) renderPosts(data);
+        }
+
+        function renderPosts(posts) {
+            const container = document.getElementById('posts');
+            container.innerHTML = posts.map(post => `
+                <div class="post">
+                    <p>${post.content}</p >
+                    <div>
+                        <button onclick="toggleLike('${post.id}')">
+                            ${post.likes[0].count} ♡
+                        </button>
+                        ${new Date(post.created_at).toLocaleString()}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function toggleLike(postId) {
+            const { error } = await supabase
+                .from('likes')
+                .upsert({ post_id: postId, user_id: supabase.auth.currentUser.id });
+            
+            if (!error) loadPosts();
+        }
+
+        function setupRealtime() {
+            supabase.channel('posts')
+                .on('postgres_changes', 
+                    { event: '*', schema: 'public', table: 'posts' },
+                    () => loadPosts()
+                )
+                .subscribe();
+        }
+    </script>
+</body>
+</html>
